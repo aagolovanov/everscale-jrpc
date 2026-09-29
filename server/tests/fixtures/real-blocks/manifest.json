@@ -1,0 +1,30 @@
+{
+  "retrieved_at": "2026-09-29T09:41:16.976189+00:00",
+  "fixtures": [
+    {
+      "name": "masterchain-key-block",
+      "source": "https://jrpc.everwallet.net/",
+      "request": {
+        "method": "getLatestKeyBlock",
+        "params": {}
+      },
+      "workchain": -1,
+      "seqno": null,
+      "root_hash": null,
+      "boc_sha256": "82581ecbc54a3f2011290bad9a992cd7c800ec9a71b57b58b0defeb1f237e60d",
+      "bytes": 19655
+    },
+    {
+      "name": "shardchain-block",
+      "source": "https://mainnet.evercloud.dev/graphql",
+      "request": {
+        "query": "{blocks(limit:1,orderBy:[{path:\"seq_no\",direction:DESC}],filter:{workchain_id:{eq:0}}){id seq_no boc}}"
+      },
+      "workchain": 0,
+      "seqno": 72402170,
+      "root_hash": "1d91257dd8035ad98fed30282c767dd2bb6cc7bd401831a7cefa38293a988748",
+      "boc_sha256": "ca4c179ab74ef3765a7c8c67a2bfdab7fb70ace096cb0c144513138985b9f43a",
+      "bytes": 859
+    }
+  ]
+}

@@ -1,6 +1,32 @@
 use weedb::rocksdb::{BlockBasedOptions, DBCompressionType, Options};
 use weedb::{Caches, ColumnFamily};
 
+/// Key: workchain (i32), tagged shard (u64), seqno (u32), all big endian.
+/// Value: JSON block header and masterchain shard list.
+pub struct Blocks;
+
+/// Key: workchain, shard, end_lt (u64), seqno. Value: Blocks key.
+pub struct BlocksByLt;
+
+/// Key: workchain, shard, gen_utime (u64), seqno. Value: Blocks key.
+pub struct BlocksByUtime;
+
+macro_rules! block_table {
+    ($table:ident, $name:literal) => {
+        impl ColumnFamily for $table {
+            const NAME: &'static str = $name;
+
+            fn options(opts: &mut Options, caches: &Caches) {
+                default_block_based_table_factory(opts, caches);
+            }
+        }
+    };
+}
+
+block_table!(Blocks, "blocks");
+block_table!(BlocksByLt, "blocks_by_lt");
+block_table!(BlocksByUtime, "blocks_by_utime");
+
 /// - Key: `workchain: i8, account: u256, lt: u64`
 /// - Value: transaction: bytes`
 pub struct Transactions;

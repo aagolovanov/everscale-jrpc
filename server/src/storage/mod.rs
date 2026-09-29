@@ -16,6 +16,7 @@ use weedb::{rocksdb, Caches, Migrations, Semver, Table, WeeDb};
 
 use crate::{PersistentStorageConfig, TransactionsGcOptions};
 
+pub mod blocks;
 pub mod tables;
 
 pub struct RuntimeStorage {
@@ -223,6 +224,9 @@ impl Default for DbOptions {
 }
 
 pub struct PersistentStorage {
+    pub blocks: Table<tables::Blocks>,
+    pub blocks_by_lt: Table<tables::BlocksByLt>,
+    pub blocks_by_utime: Table<tables::BlocksByUtime>,
     pub transactions: Table<tables::Transactions>,
     pub transactions_by_hash: Table<tables::TransactionsByHash>,
     pub transactions_by_in_msg: Table<tables::TransactionsByInMsg>,
@@ -305,6 +309,9 @@ impl PersistentStorage {
             .with_table::<tables::TransactionsByInMsg>()
             .with_table::<tables::CodeHashes>()
             .with_table::<tables::CodeHashesByAddress>()
+            .with_table::<tables::Blocks>()
+            .with_table::<tables::BlocksByLt>()
+            .with_table::<tables::BlocksByUtime>()
             .build()
             .context("Failed building db")?;
 
@@ -317,6 +324,9 @@ impl PersistentStorage {
         let transactions: Table<tables::Transactions> = inner.instantiate_table();
 
         Ok(Self {
+            blocks: inner.instantiate_table(),
+            blocks_by_lt: inner.instantiate_table(),
+            blocks_by_utime: inner.instantiate_table(),
             transactions,
             transactions_by_hash: inner.instantiate_table(),
             transactions_by_in_msg: inner.instantiate_table(),

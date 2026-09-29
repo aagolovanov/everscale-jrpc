@@ -34,6 +34,7 @@ define_query_error!(QueryError, {
     InvalidAccountState => (-32006, "Invalid account state"),
     InvalidMessage => (-32007, "Invalid message"),
     TooBigRange => (-32008, "Too big range"),
+    BlockNotFound => (-32009, "Block not found in indexed history"),
 });
 
 impl QueryError {

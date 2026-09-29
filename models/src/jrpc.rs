@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use serde::Deserializer;
 
+mod blocks;
+pub use blocks::*;
+
 pub trait Request: Serialize {
     type ResponseContainer: DeserializeOwned;
     type Response: From<Self::ResponseContainer>;
