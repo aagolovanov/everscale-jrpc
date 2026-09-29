@@ -32,6 +32,10 @@ for the Everscale/Venom blockchains.
 - [`getTransaction`](#gettransaction)
 - [`getDstTransaction`](#getdsttransaction)
 - [`getAccountsByCodeHash`](#getaccountsbycodehash)
+- [`getBlockHeader`](./docs/block-rpc.md)
+- [`getMasterchainInfo`](./docs/block-rpc.md)
+- [`getShards`](./docs/block-rpc.md)
+- [`lookupBlock`](./docs/block-rpc.md)
 
 ### `getCapabilities`
 

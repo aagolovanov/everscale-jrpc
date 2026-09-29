@@ -35,6 +35,7 @@ impl JrpcServer {
                 "getBlockchainConfig",
                 "getStatus",
                 "getTimings",
+                "getMasterchainInfo",
                 "getContractState",
                 "getLibraryCell",
                 "sendMessage",
@@ -46,6 +47,9 @@ impl JrpcServer {
                     "getTransaction",
                     "getDstTransaction",
                     "getAccountsByCodeHash",
+                    "getBlockHeader",
+                    "getShards",
+                    "lookupBlock",
                 ]);
             }
 
@@ -196,6 +200,12 @@ pub async fn jrpc_router(
         "getBlockchainConfig" => req.fill(ctx.jrpc().get_blockchain_config()),
         "getStatus" => req.fill(ctx.jrpc().get_status()),
         "getTimings" => req.fill(ctx.jrpc().get_timings()),
+        "getMasterchainInfo" => req.fill_with_params(|_: &jrpc::GetMasterchainInfoRequest| {
+            ctx.jrpc().get_masterchain_info()
+        }),
+        "getBlockHeader" => req.fill_with_params(|req| ctx.jrpc().get_block_header(req)),
+        "getShards" => req.fill_with_params(|req| ctx.jrpc().get_shards(req)),
+        "lookupBlock" => req.fill_with_params(|req| ctx.jrpc().lookup_block(req)),
         "getLibraryCell" => req.fill_with_params(|req| ctx.jrpc().get_library_cell(req)),
         "getContractState" => req.fill_with_params(|req| ctx.jrpc().get_contract_state(req)),
         "getAccountsByCodeHash" => {
@@ -211,7 +221,110 @@ pub async fn jrpc_router(
 
 // === impl JrpcServer ===
 
+fn parse_shard(workchain: i32, shard: &str) -> QueryResult<u64> {
+    let shard = shard
+        .parse::<i64>()
+        .map_err(|_| QueryError::InvalidParams)? as u64;
+    if shard == 0 || (workchain == -1 && shard != 1 << 63) {
+        return Err(QueryError::InvalidParams);
+    }
+    ton_block::ShardIdent::with_tagged_prefix(workchain, shard)
+        .map_err(|_| QueryError::InvalidParams)?;
+    Ok(shard)
+}
+
+fn parse_block_hash(hash: &str) -> QueryResult<String> {
+    let bytes = if hash.len() == 64 {
+        hex::decode(hash).map_err(|_| QueryError::InvalidParams)?
+    } else {
+        base64::decode(hash).map_err(|_| QueryError::InvalidParams)?
+    };
+    if bytes.len() != 32 {
+        return Err(QueryError::InvalidParams);
+    }
+    Ok(base64::encode(bytes))
+}
+
 impl JrpcServer {
+    fn get_masterchain_info(&self) -> QueryResult<jrpc::GetMasterchainInfoResponse> {
+        let init = self
+            .state
+            .zero_state_id
+            .read()
+            .clone()
+            .ok_or(QueryError::NotReady)?;
+        let (last, state_root_hash) = self
+            .state
+            .masterchain_head
+            .read()
+            .clone()
+            .ok_or(QueryError::NotReady)?;
+        Ok(jrpc::GetMasterchainInfoResponse {
+            last,
+            state_root_hash,
+            init,
+        })
+    }
+
+    fn block_storage(&self) -> QueryResult<&crate::storage::PersistentStorage> {
+        self.state
+            .persistent_storage
+            .as_ref()
+            .ok_or(QueryError::NotSupported)
+    }
+
+    fn get_block_header(
+        &self,
+        req: &jrpc::GetBlockHeaderRequest,
+    ) -> QueryResult<jrpc::BlockHeader> {
+        let shard = parse_shard(req.workchain, &req.shard)?;
+        let root_hash = req.root_hash.as_deref().map(parse_block_hash).transpose()?;
+        let file_hash = req.file_hash.as_deref().map(parse_block_hash).transpose()?;
+        let header = self
+            .block_storage()?
+            .get_block(req.workchain, shard, req.seqno)
+            .map_err(|_| QueryError::StorageError)?
+            .ok_or(QueryError::BlockNotFound)?
+            .header;
+        if root_hash
+            .as_ref()
+            .is_some_and(|hash| *hash != header.id.root_hash)
+            || file_hash
+                .as_ref()
+                .is_some_and(|hash| *hash != header.id.file_hash)
+        {
+            return Err(QueryError::BlockNotFound);
+        }
+        Ok(header)
+    }
+
+    fn get_shards(&self, req: &jrpc::GetShardsRequest) -> QueryResult<jrpc::GetShardsResponse> {
+        let block = self
+            .block_storage()?
+            .get_block(-1, 1 << 63, req.seqno)
+            .map_err(|_| QueryError::StorageError)?
+            .ok_or(QueryError::BlockNotFound)?;
+        Ok(jrpc::GetShardsResponse {
+            shards: block.shards,
+        })
+    }
+
+    fn lookup_block(&self, req: &jrpc::LookupBlockRequest) -> QueryResult<jrpc::BlockId> {
+        let shard = parse_shard(req.workchain, &req.shard)?;
+        if req.seqno.is_some() as u8 + req.lt.is_some() as u8 + req.unixtime.is_some() as u8 != 1 {
+            return Err(QueryError::InvalidParams);
+        }
+        let storage = self.block_storage()?;
+        let block = match (req.seqno, req.lt, req.unixtime) {
+            (Some(seqno), None, None) => storage.get_block(req.workchain, shard, seqno),
+            (None, Some(lt), None) => storage.block_by_lt(req.workchain, shard, lt),
+            (None, None, Some(utime)) => storage.block_by_utime(req.workchain, shard, utime),
+            _ => return Err(QueryError::InvalidParams),
+        }
+        .map_err(|_| QueryError::StorageError)?;
+        Ok(block.ok_or(QueryError::BlockNotFound)?.header.id)
+    }
+
     fn get_capabilities(&self) -> QueryResult<&serde_json::Value> {
         Ok(&self.capabilities_response)
     }

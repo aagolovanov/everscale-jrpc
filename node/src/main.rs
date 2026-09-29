@@ -90,6 +90,7 @@ async fn run(app: App) -> Result<()> {
     let rpc_state = RpcState::new(config.rpc_config)
         .map(Arc::new)
         .context("Failed to create Server state")?;
+    rpc_state.set_zero_state_id(&global_config.zero_state);
 
     // Create engine
     let engine = Engine::new(

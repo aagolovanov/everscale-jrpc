@@ -1,0 +1,16 @@
+rpc_config:
+  listen_address: "127.0.0.1:8081"
+  type: full
+  persistent_db_path: "./db/rpc-storage"
+
+node_settings:
+  db_path: "./db/node"
+  temp_keys_path: "./db/adnl-keys.json"
+  adnl_port: 30303
+  adnl_options:
+    use_loopback_for_neighbours: true
+    force_use_priority_channels: true
+  rldp_options:
+    force_compression: true
+  overlay_shard_options:
+    force_compression: true

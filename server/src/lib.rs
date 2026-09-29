@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use arc_swap::ArcSwapWeak;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use ton_indexer::utils::{BlockStuff, ShardStateStuff};
 
@@ -20,6 +21,9 @@ mod server;
 mod storage;
 mod utils;
 mod ws;
+
+#[cfg(test)]
+mod block_tests;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -93,6 +97,8 @@ pub struct RpcState {
     engine: ArcSwapWeak<ton_indexer::Engine>,
     ws_producer: ws::WsProducer,
     runtime_storage: RuntimeStorage,
+    masterchain_head: RwLock<Option<(models::jrpc::BlockId, String)>>,
+    zero_state_id: RwLock<Option<models::jrpc::BlockId>>,
     persistent_storage: Option<PersistentStorage>,
     jrpc_counters: Counters,
     proto_counters: Counters,
@@ -109,6 +115,8 @@ impl RpcState {
             config,
             engine: Default::default(),
             runtime_storage: Default::default(),
+            masterchain_head: Default::default(),
+            zero_state_id: Default::default(),
             ws_producer: Default::default(),
             persistent_storage,
             jrpc_counters: Counters::named("jrpc"),
@@ -117,6 +125,17 @@ impl RpcState {
     }
 
     pub async fn initialize(self: &Arc<Self>, engine: &Arc<ton_indexer::Engine>) -> Result<()> {
+        // A node bootstrapped from an init block need not retain the zerostate.
+        // Embedders can supply its ID directly from their global config.
+        if self.zero_state_id.read().is_none() {
+            if let Ok(zero_state) = engine.load_mc_zero_state().await {
+                self.set_zero_state_id(zero_state.block_id());
+            }
+        }
+        let last_id = engine.load_last_applied_mc_block_id()?;
+        let last_state = engine.load_state(&last_id).await?;
+        self.update_masterchain_head(&last_id, last_state.root_cell().repr_hash().as_slice());
+
         match engine.load_last_key_block().await {
             Ok(last_key_block) => {
                 self.runtime_storage
@@ -243,6 +262,13 @@ impl RpcState {
 
         if let Some(storage) = &self.persistent_storage {
             storage.update(block_id, block, shard_state)?;
+            storage.store_block(&storage::blocks::StoredBlock::from_block(
+                block_id, block, block_info,
+            )?)?;
+        }
+
+        if block_id.shard_id.is_masterchain() {
+            self.update_masterchain_head(block_id, block.read_state_update()?.new_hash.as_slice());
         }
 
         self.ws_producer
@@ -250,6 +276,22 @@ impl RpcState {
             .await?;
 
         Ok(())
+    }
+
+    fn update_masterchain_head(&self, id: &ton_block::BlockIdExt, state_hash: &[u8]) {
+        let mut head = self.masterchain_head.write();
+        // Historical archive replay can arrive after newer live blocks.
+        if head
+            .as_ref()
+            .is_none_or(|(current, _)| current.seqno <= id.seq_no)
+        {
+            *head = Some((storage::blocks::block_id(id), base64::encode(state_hash)));
+        }
+    }
+
+    /// Set the network zerostate identity from GlobalConfig before initialization.
+    pub fn set_zero_state_id(&self, id: &ton_block::BlockIdExt) {
+        *self.zero_state_id.write() = Some(storage::blocks::block_id(id));
     }
 
     pub(crate) fn is_ready(&self) -> bool {
